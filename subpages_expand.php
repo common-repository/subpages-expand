@@ -1,0 +1,156 @@
+<?php
+/*
+ * Plugin Name: Subpages as Expandible Links Shortcode
+ * Plugin URI: http://hbjitney.com/subpages-expand.html
+ * Description: Add [subpages_expand] to any page to embed all subpages as content-expandable links at that location.
+ * Version: 1.15
+ * Author: HBJitney, LLC
+ * Author URI: http://hbjitney.com/
+ * License: GPL3
+
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+if ( !class_exists('SupPagesExpand' ) ) {
+	/**
+	* Wrapper class to isolate us from the global space in order
+	* to prevent method collision
+	*/
+	class SupPagesExpand {
+		var $plugin_name;
+
+		/**
+		 * Set up all actions, instantiate other
+		 */
+		function __construct() {
+			add_action( 'wp_enqueue_scripts', array( $this, 'shortcode_enqueue' ), 10 );
+			add_action( 'edit_page_form', array( $this, 'add_button_to_editor' ), 100 );
+			add_shortcode('subpages_expand', array( $this, 'render_subs' ) );
+			add_filter( 'the_posts', array( $this, 'conditionally_add_scripts_and_styles' ) ); // the_posts gets triggered before wp_head
+		}
+
+		function shortcode_enqueue() {
+			wp_enqueue_script( 'jquery' );
+			wp_enqueue_script( 'jquery-ui-core' );
+			wp_enqueue_script( 'jquery-ui-widget' );
+		}
+
+		/**
+		 * Added the button to the page editor only
+		 * (use action 'edit_page_form' to trigger)
+		 */
+		function add_button_to_editor() {
+				wp_enqueue_script(
+					'add_button_editor'				// handle
+					, plugins_url(
+						'js/add_button_editor.js.php'
+						, __FILE__
+					)								// source
+					, array(
+						'quicktags'
+					)								// depends on
+					, '1.10'						// version
+					, true 							// in footer
+				);
+				$translations = array(
+					'button_title' => __( "Insert 'subpages expand' tag" )
+					, 'button_text' => __( "Subpages Expand" )
+					);
+				wp_localize_script( 'add_button_editor', 'texts', $translations );
+		}
+
+		/**
+		* Enqueue scripts iff there are posts that have the shortcode
+		* cycle through all posts and use stripos (faster than regex) to see if shortcode is in one of the displayed posts
+		* http://beerpla.net/2010/01/13/wordpress-plugin-development-how-to-include-css-and-javascript-conditionally-and-only-when-needed-by-the-posts/
+		*/
+		function conditionally_add_scripts_and_styles( $posts ) {
+			if( empty( $posts ) ) {
+				return $posts;
+			}
+
+			$shortcode_found = false;
+			foreach( $posts as $post ) {
+				if( true == stripos( $post->post_content, '[subpages_expand]' )) {
+					$shortcode_found = true;
+					break;
+				}
+			}
+
+			if( $shortcode_found ) {
+				$this->shortcode_enqueue();
+			}
+
+			return $posts;
+		}
+
+
+		/*
+		 * Process the content for the shortcode
+		 */
+		function render_subs( $attributes ) {
+			global $post;
+			$content = "";
+			// If a page, then do split
+			// Get ids of children
+			$children = get_pages( array(
+				'hierarchical' => 0
+				, 'parent' => $post->ID
+				, 'sort_column' => 'menu_order'
+			) );
+
+			foreach ( $children as $child ) {
+				// Render any shortcodes in child pages
+				$child_content = do_shortcode( $child->post_content );
+				$content .= "<h2 class='subpage_title' style='cursor:pointer'>$child->post_title</h2>
+<div class='subpage_content' style='display:none'>
+$child_content
+</div>";
+			}
+
+// TODO - externalize and enqueue script
+			$content .= "<script type='text/javascript'>
+/*<![CDATA[*/
+jQuery( function(){
+			jQuery('.subpage_title').click(function() {
+				jQuery(this).next('.subpage_content').slideToggle(500);
+			});
+	});
+/*]]>*/
+</script>";
+			return $content;
+		}
+	}
+}
+
+
+/*
+ * Sanity - was there a problem setting up the class? If so, bail with error
+ * Otherwise, class is now defined; create a new one it to get the ball rolling.
+ */
+if( class_exists( 'SupPagesExpand' ) ) {
+	new SupPagesExpand();
+} else {
+	$message = "<h2 style='color:red'>Error in plugin</h2>
+	<p>Sorry about that! Plugin <span style='color:blue;font-family:monospace'>subpages_expand_shortcode</span> reports that it was unable to start.</p>
+	<p><a href='mailto:support@hbjitney.com?subject=Subpages+Expand+shortcode%20error&body=What version of Wordpress are you running? Please paste a list of your current active plugins here:'>Please report this error</a>.
+	Meanwhile, here are some things you can try:</p>
+	<ul><li>Uninstall (delete) this plugin, then reinstall it.</li>
+	<li>Make sure you are running the latest version of the plugin; update the plugin if not.</li>
+	<li>There might be a conflict with other plugins. You can try disabling every other plugin; if the problem goes away, there is a conflict.</li>
+	<li>Try a different theme to see if there's a conflict between the theme and the plugin.</li>
+	</ul>";
+	wp_die( $message );
+}
+?>
